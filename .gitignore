@@ -177,7 +177,6 @@ cython_debug/
 __pycache__/
 *.pyc
 .venv/
-checkpoints/
 logs/
 *.pth
 *.pt
@@ -185,4 +184,3 @@ logs/
 *.log
 .idea/
 .vscode/
-datasets/

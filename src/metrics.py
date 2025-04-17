@@ -1,5 +1,8 @@
 # src/metrics.py
 import torch
+from .scripts.preprocess import rsrp_norm
+
+P_TH = -103
 
 
 def rmse(y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
@@ -7,7 +10,7 @@ def rmse(y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
 
 
 def pcrr(y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
-    t = 0.37
+    t = rsrp_norm(P_TH)
     tp = ((y_true < t) & (y_pred < t)).sum()
     fp = ((y_true >= t) & (y_pred < t)).sum()
     fn = ((y_true < t) & (y_pred >= t)).sum()

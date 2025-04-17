@@ -4,10 +4,11 @@ import torch, yaml, argparse, os
 from pathlib import Path
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from .data import split_loaders
-from .schedule import DiffusionSchedule
 from .ndp import NDP
 from .metrics import rmse, pcrr
 
@@ -16,9 +17,9 @@ def evaluate(model_wrap, loader, device):
     y_true_all, y_pred_all = [], []
     model_wrap.model.eval()
     with torch.no_grad():
-        for x, y in loader:
+        for x, y in tqdm(loader, desc="[Eval]", leave=False):
             x, y = x.to(device), y.to(device)
-            y_hat = model_wrap.sample(x)  # [B,N,1]
+            y_hat = model_wrap.sample(x)
             y_true_all.append(y)
             y_pred_all.append(y_hat)
     y_true = torch.cat(y_true_all)
@@ -27,9 +28,6 @@ def evaluate(model_wrap, loader, device):
 
 
 def build_scheduler(optimizer, cfg):
-    """
-    先 warm‑up 5% step 线性增 lr，再余弦退火到 0
-    """
     total_steps = cfg["epochs"] * cfg["iter_per_epoch"]
     warmup_steps = int(0.05 * total_steps)
     warm = LinearLR(optimizer, start_factor=0.1, total_iters=warmup_steps)
@@ -42,44 +40,68 @@ def build_scheduler(optimizer, cfg):
 def train(cfg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tr_dl, te_dl = split_loaders(cfg["csv"], cfg["batch"], split=0.8, seed=cfg["seed"])
-    # 在 build_scheduler 里要用到每 epoch iteration 数
     cfg["iter_per_epoch"] = len(tr_dl)
 
-    sched_diff = DiffusionSchedule(cfg["T"], device=device)
+    save_dir = Path(cfg.get("save_dir", "results"))
+    ckpt_dir = save_dir / "checkpoints"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    writer = SummaryWriter(log_dir=save_dir / "runs")
+
     ndp_wrap = NDP(
-        cfg["D"],
-        sched_diff,
-        hidden=cfg["hidden"],
-        n_layers=cfg["layers"],
-        device=device,
+        cfg["D"], cfg["T"], hidden=cfg["hidden"], n_layers=cfg["layers"], device=device
     )
     model = ndp_wrap.model
-
     opt = AdamW(model.parameters(), lr=cfg["lr"], weight_decay=1e-2)
     lr_sched = build_scheduler(opt, cfg)
 
+    train_losses, val_rmses, val_pcrrs = [], [], []
     best_rmse = float("inf")
+
     for epoch in range(cfg["epochs"]):
         model.train()
+        total_loss = 0
         pbar = tqdm(tr_dl, desc=f"Epoch {epoch}")
         for x, y in pbar:
             x, y = x.to(device), y.to(device)
-
             loss = ndp_wrap.loss(x, y)
             opt.zero_grad()
             loss.backward()
             opt.step()
-            lr_sched.step()  # <= 每 step 更新
+            lr_sched.step()
+            total_loss += loss.item()
             pbar.set_postfix(loss=loss.item(), lr=opt.param_groups[0]["lr"])
 
-        # ------------ validation ------------
+        avg_loss = total_loss / len(tr_dl)
         rmse_val, pcrr_val = evaluate(ndp_wrap, te_dl, device)
-        print(f"[Val] RMSE={rmse_val:.3f} | PCRR={pcrr_val:.3f}")
+
+        train_losses.append(avg_loss)
+        val_rmses.append(rmse_val)
+        val_pcrrs.append(pcrr_val)
+
+        writer.add_scalar("Loss/train", avg_loss, epoch)
+        writer.add_scalar("RMSE/val", rmse_val, epoch)
+        writer.add_scalar("PCRR/val", pcrr_val, epoch)
+
+        print(f"[Train] Epoch {epoch} | Avg Loss={avg_loss:.4f}")
+        print(f"[Val]   RMSE={rmse_val:.3f} | PCRR={pcrr_val:.3f}")
 
         if rmse_val < best_rmse:
             best_rmse = rmse_val
-            os.makedirs("checkpoints", exist_ok=True)
-            torch.save(model.state_dict(), "checkpoints/ndp_best.pt")
+            torch.save(model.state_dict(), ckpt_dir / "ndp_best.pt")
+
+    # 可选：绘图保存
+    plt.figure()
+    plt.plot(train_losses, label="Train Loss")
+    plt.plot(val_rmses, label="Val RMSE")
+    plt.plot(val_pcrrs, label="Val PCRR")
+    plt.xlabel("Epoch")
+    plt.legend()
+    plt.grid(True)
+    plt.title("Training Progress")
+    plt.savefig(save_dir / "metrics_curve.png")
+    plt.close()
+
+    writer.close()
 
 
 if __name__ == "__main__":
