@@ -172,3 +172,17 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+
+__pycache__/
+*.pyc
+.venv/
+checkpoints/
+logs/
+*.pth
+*.pt
+*.ckpt
+*.log
+.idea/
+.vscode/
+datasets/
