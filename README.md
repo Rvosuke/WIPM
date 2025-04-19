@@ -92,7 +92,9 @@ python scripts/visualize_rsrp.py \
 - **RSRP heatmaps** for both ground-truth and predictions
 - **Residual maps** to visualize model error
 
-![Sample Curves](results/runs/metrics_curve.png)
+![Sample Curves](results/metrics_curve.png)
+
+![Sample](results/runs-111801.png)
 
 ---
 
@@ -112,6 +114,5 @@ python scripts/visualize_rsrp.py \
 ---
 
 ## ✍️ Author
-This project is part of an undergraduate thesis at the University of Chinese Academy of Sciences.
-
+[Rvosuke](https://github.com/Rvosuke)
 Please cite or acknowledge if using or referencing this work.
