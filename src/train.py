@@ -39,7 +39,7 @@ def build_scheduler(optimizer, cfg):
 
 def train(cfg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tr_dl, te_dl = split_loaders(cfg["csv"], cfg["batch"], split=0.8, seed=cfg["seed"])
+    tr_dl, te_dl = split_loaders(cfg["csv"], cfg["batch"], split=0.9, seed=cfg["seed"])
     cfg["iter_per_epoch"] = len(tr_dl)
 
     save_dir = Path(cfg.get("save_dir", "results"))

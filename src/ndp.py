@@ -135,11 +135,9 @@ class NDPNoisePredictor(nn.Module):
         assert x.dim() == 2 and y_noisy.dim() == 2 and y_noisy.shape[1] == 1
 
         B, D = x.shape
-        x = x.unsqueeze(1)  # [B, 1, D]
-        y_noisy = y_noisy.unsqueeze(1)  # [B, 1, 1]
 
-        h_x = self.x_proj(x)  # [B, 1, H]
-        h_y = self.y_proj(y_noisy)  # [B, 1, H]
+        h_x = self.x_proj(x.unsqueeze(1))  # [B, 1, H]
+        h_y = self.y_proj(y_noisy.unsqueeze(1))  # [B, 1, H]
         time = self.time_embed(t)  # [B, H]
         time = self.time_dense(time).unsqueeze(1).unsqueeze(2)  # [B,1,1,H]
         h = h_x.unsqueeze(2) + h_y.unsqueeze(2) + time  # [B,1,1,H]
@@ -148,7 +146,7 @@ class NDPNoisePredictor(nn.Module):
             h = blk(h)
 
         h = self.post_norm(h.sum(dim=2))  # [B, 1, H]
-        return self.mlp(h).squeeze(2)  # [B, 1]
+        return y_noisy + self.mlp(h).squeeze(2)  # [B, 1]
 
 
 class NDP:

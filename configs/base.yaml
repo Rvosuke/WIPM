@@ -1,5 +1,5 @@
 csv: datasets/processed/train.csv
-batch: 8
+batch: 64
 N: 1          # 每 batch 每样本使用几个空间点
 D: 24         # 输入特征维度
 T: 25         # 扩散步数
@@ -7,6 +7,6 @@ hidden: 128   # 隐空间维度
 layers: 6     # Attention block 层数
 lr: 0.0003
 lr_min: 0.000001
-epochs: 20
+epochs: 120
 ckpt: checkpoints/ndp_e19.pt
-seed: 2025
+seed: 42
