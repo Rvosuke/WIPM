@@ -178,10 +178,6 @@ __pycache__/
 *.pyc
 .venv/
 logs/
-*.pth
-*.pt
-*.ckpt
-*.log
+
 .idea/
-.vscode/
 runs/

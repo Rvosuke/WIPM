@@ -1,0 +1,23 @@
+# 迁移学习配置文件
+train_csv_paths:
+  - datasets/processed/train_111801.csv
+  - datasets/processed/train_468101.csv
+test_csv_path: datasets/processed/train_2304601.csv
+
+# 模型参数保持与原始训练相同
+batch: 64
+N: 1          # 每 batch 每样本使用几个空间点
+D: 24         # 输入特征维度
+T: 25         # 扩散步数
+hidden: 128   # 隐空间维度
+layers: 6     # Attention block 层数
+lr: 0.0003
+lr_min: 0.000001
+epochs: 120
+seed: 42
+
+# 可选：从预训练模型开始训练（如果需要）
+# load_ckpt: results/checkpoints/ndp_best.pt
+
+# 结果保存目录
+save_dir: results/transfer
