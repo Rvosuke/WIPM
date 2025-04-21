@@ -25,15 +25,15 @@ class DiffusionSchedule:
         self.sqrt_one_minus_alpha_cum = torch.sqrt(1 - self.alpha_cumprod)
 
     def q_sample(self, y0: Tensor, t: Tensor, noise: Tensor) -> Tensor:
-        a = self.sqrt_alpha_cum[t].unsqueeze(1)
-        b = self.sqrt_one_minus_alpha_cum[t].unsqueeze(1)
+        a = self.sqrt_alpha_cum[t].unsqueeze(1).unsqueeze(1)
+        b = self.sqrt_one_minus_alpha_cum[t].unsqueeze(1).unsqueeze(1)
         return a * y0 + b * noise
 
     def predict_prev(self, y_t: Tensor, eps_pred: Tensor, t: Tensor) -> Tensor:
-        beta_t = self.betas[t].unsqueeze(1)
-        alpha_t = self.alphas[t].unsqueeze(1)
-        alpha_cum_t = self.alpha_cumprod[t].unsqueeze(1)
-        sqrt_one_minus = self.sqrt_one_minus_alpha_cum[t].unsqueeze(1)
+        beta_t = self.betas[t].unsqueeze(1).unsqueeze(1)
+        alpha_t = self.alphas[t].unsqueeze(1).unsqueeze(1)
+        alpha_cum_t = self.alpha_cumprod[t].unsqueeze(1).unsqueeze(1)
+        sqrt_one_minus = self.sqrt_one_minus_alpha_cum[t].unsqueeze(1).unsqueeze(1)
 
         coef1 = 1.0 / torch.sqrt(alpha_t)
         coef2 = beta_t / sqrt_one_minus
@@ -56,16 +56,24 @@ class TimeEmbedding(nn.Module):
 
 # ---------- BiDimAttnBlock (升级版) ----------
 class BiDimAttnBlock(nn.Module):
-    def __init__(self, hidden: int, num_heads: int = 4) -> None:
+    def __init__(self, hidden: int, num_heads: int = 4, dropout: float = 0.1) -> None:
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden)
         self.norm2 = nn.LayerNorm(hidden)
-        self.mhsa_dim = nn.MultiheadAttention(hidden, num_heads, batch_first=True)
-        self.mhsa_seq = nn.MultiheadAttention(hidden, num_heads, batch_first=True)
+        self.mhsa_dim = nn.MultiheadAttention(
+            hidden, num_heads, batch_first=True, dropout=dropout
+        )
+        self.mhsa_seq = nn.MultiheadAttention(
+            hidden, num_heads, batch_first=True, dropout=dropout
+        )
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.dropout3 = nn.Dropout(dropout)
         self.ffn = nn.Sequential(
             nn.LayerNorm(hidden),
             nn.Linear(hidden, hidden * 4),
             nn.GELU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden * 4, hidden),
         )
 
@@ -74,14 +82,16 @@ class BiDimAttnBlock(nn.Module):
 
         s_d = rearrange(s, "b n d h -> (b n) d h")
         d_out, _ = self.mhsa_dim(self.norm1(s_d), self.norm1(s_d), self.norm1(s_d))
+        d_out = self.dropout1(d_out)
         d_out = rearrange(d_out, "(b n) d h -> b n d h", b=B, n=N)
 
         s_n = rearrange(s, "b n d h -> (b d) n h")
         n_out, _ = self.mhsa_seq(self.norm2(s_n), self.norm2(s_n), self.norm2(s_n))
+        n_out = self.dropout2(n_out)
         n_out = rearrange(n_out, "(b d) n h -> b n d h", b=B, d=D)
 
         out = s + d_out + n_out
-        out = out + self.ffn(out)
+        out = out + self.dropout3(self.ffn(out))
         return out
 
 
@@ -132,21 +142,50 @@ class NDPNoisePredictor(nn.Module):
     def forward(
         self, x: torch.Tensor, y_noisy: torch.Tensor, t: torch.Tensor
     ) -> torch.Tensor:
-        assert x.dim() == 2 and y_noisy.dim() == 2 and y_noisy.shape[1] == 1
+        """
+        前向传播函数，支持时间序列输入输出
 
-        B, D = x.shape
+        参数:
+            x: 输入特征，形状为[B, D]或[B, N_in, D]
+            y_noisy: 带噪声的目标值，形状为[B, 1]或[B, N_out, 1]
+            t: 扩散时间步，形状为[B]
 
-        h_x = self.x_proj(x.unsqueeze(1))  # [B, 1, H]
-        h_y = self.y_proj(y_noisy.unsqueeze(1))  # [B, 1, H]
+        返回:
+            预测值，与y_noisy形状相同
+        """
+        # 如果输入是二维的，转换为三维（保持兼容性）
+        if x.dim() == 2:
+            x = x.unsqueeze(1)  # [B, D] -> [B, 1, D]
+
+        # 对于时间序列输出，确保y_noisy是三维的
+        if y_noisy.dim() == 2:
+            y_noisy = y_noisy.unsqueeze(1)  # [B, 1] -> [B, 1, 1]
+
+        B, N_in, D_in = x.shape  # N_in为输入序列长度，D_in为特征维度
+        _, N_out, _ = y_noisy.shape  # N_out为输出序列长度
+
+        h_x = self.x_proj(x)  # [B, N_in, D_in] -> [B, N_in, H]
+        h_y = self.y_proj(y_noisy)  # [B, N_out, 1] -> [B, N_out, H]
+
+        # 扩散时间步嵌入
         time = self.time_embed(t)  # [B, H]
-        time = self.time_dense(time).unsqueeze(1).unsqueeze(2)  # [B,1,1,H]
-        h = h_x.unsqueeze(2) + h_y.unsqueeze(2) + time  # [B,1,1,H]
+        time = self.time_dense(time).unsqueeze(1).unsqueeze(2)  # [B, 1, 1, H]
 
+        # 注意力计算
+        h = h_x.unsqueeze(2) + h_y.unsqueeze(1) + time  # [B, N_in, N_out, H]
+
+        # 根据training状态自动处理dropout
+        # 在训练时(self.training=True)会启用dropout
+        # 在推理时(self.training=False)会禁用dropout
         for blk in self.blocks:
             h = blk(h)
 
-        h = self.post_norm(h.sum(dim=2))  # [B, 1, H]
-        return y_noisy + self.mlp(h).squeeze(2)  # [B, 1]
+        h = self.post_norm(h.sum(dim=1))  # [B, N_out, H]
+
+        # 输出层
+        output = y_noisy + self.mlp(h)  # [B, N_out, 1]
+
+        return output
 
 
 class NDP:
@@ -155,9 +194,20 @@ class NDP:
         self.sched = DiffusionSchedule(timesteps=time_step, device=device)
 
     def loss(self, x0: torch.Tensor, y0: torch.Tensor) -> torch.Tensor:
-        assert x0.dim() == 2 and y0.shape[-1] == 1
+        """
+         计算时间序列扩散模型的损失函数
+
+        参数:
+            x0: 输入特征，形状为[B, D]或[B, N_in, D]
+            y0: 目标值，形状为[B, 1]（单步预测）或[B, N_out, 1]（序列预测）
+
+        返回:
+            mse损失
+        """
         device = x0.device
         B = x0.shape[0]
+
+        # 单步预测和序列预测统一处理
         t = torch.randint(0, self.sched.T, (B,), device=device)
         noise = torch.randn_like(y0)
         y_t = self.sched.q_sample(y0, t, noise)
@@ -166,6 +216,15 @@ class NDP:
 
     @torch.no_grad()
     def sample(self, x0: torch.Tensor) -> torch.Tensor:
+        """
+        从扩散模型中生成单步样本
+
+        参数:
+            x0: 输入特征，形状为[B, D]
+
+        返回:
+            预测值，形状为[B, 1]
+        """
         device = x0.device
         B = x0.shape[0]
         y_t = torch.randn(B, 1, device=device)
@@ -178,4 +237,37 @@ class NDP:
                 beta = self.sched.betas[step].sqrt().to(device)
                 y_prev += beta * noise
             y_t = y_prev
+        return y_t
+
+    @torch.no_grad()
+    def sample_sequence(self, x0: torch.Tensor, seq_len: int) -> torch.Tensor:
+        """
+         预测整个时间序列
+
+        参数:
+            x0: 输入特征，形状为[B, N_in, D]
+            seq_len: 要预测的序列长度
+
+        返回:
+            预测序列，形状为[B, seq_len, 1]
+        """
+        device = x0.device
+        B = x0.shape[0]
+
+        # 初始化带噪声的输出序列
+        y_t = torch.randn(B, seq_len, 1, device=device)
+
+        # 逐步去噪过程
+        for step in reversed(range(self.sched.T)):
+            t = torch.full((B,), step, device=device, dtype=torch.long)
+            eps = self.model(x0, y_t, t)
+            y_prev = self.sched.predict_prev(y_t, eps, t)
+
+            if step > 0:
+                noise = torch.randn_like(y_t)
+                beta = self.sched.betas[step].sqrt().to(device)
+                y_prev += beta * noise
+
+            y_t = y_prev
+
         return y_t
