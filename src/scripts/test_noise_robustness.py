@@ -54,9 +54,9 @@ def evaluate_with_noise(model, test_loader, device, noise_level=0.0):
                 x_noisy = x + noise
                 # 确保噪声后的值仍在合理范围内 [0, 1]
                 x_noisy = torch.clamp(x_noisy, 0, 1)
-                y_hat = model.sample(x_noisy)
+                y_hat = model.sample(x_noisy, 1)
             else:
-                y_hat = model.sample(x)
+                y_hat = model.sample(x, 1)
 
             y_true_all.append(y)
             y_pred_all.append(y_hat)
@@ -83,9 +83,9 @@ def visualize_performance_vs_noise(results, save_path=None):
     ax1.plot(
         noise_levels, rmse_values, "o-", color="#1f77b4", linewidth=2, markersize=8
     )
-    ax1.set_xlabel("噪声水平 (标准差)")
+    ax1.set_xlabel("Noise Level (standard deviation)")
     ax1.set_ylabel("RMSE")
-    ax1.set_title("噪声水平 vs RMSE")
+    ax1.set_title("Noise Level vs RMSE")
     ax1.grid(True, linestyle="--", alpha=0.7)
 
     # 为每个点添加标签
@@ -98,9 +98,9 @@ def visualize_performance_vs_noise(results, save_path=None):
     ax2.plot(
         noise_levels, pcrr_values, "o-", color="#ff7f0e", linewidth=2, markersize=8
     )
-    ax2.set_xlabel("噪声水平 (标准差)")
+    ax2.set_xlabel("Noise Level (standard deviation)")
     ax2.set_ylabel("PCRR")
-    ax2.set_title("噪声水平 vs PCRR")
+    ax2.set_title("Noise Level vs PCRR")
     ax2.grid(True, linestyle="--", alpha=0.7)
 
     # 为每个点添加标签
@@ -187,7 +187,7 @@ if __name__ == "__main__":
         "--noise-levels",
         type=float,
         nargs="+",
-        default=[0.0, 0.001, 0.002, 0.003, 0.004, 0.005],
+        default=[0.0, 0.01, 0.02, 0.03, 0.04, 0.05],
         help="要测试的噪声水平列表",
     )
 

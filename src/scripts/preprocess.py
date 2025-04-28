@@ -1,5 +1,4 @@
 # src/scripts/preproces.py
-from __future__ import annotations
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -48,8 +47,8 @@ def preprocess_df(df: pd.DataFrame) -> pd.DataFrame:
     df["user_building_flag"] = (df["Building Height"] > 0).astype(float)
 
     # 特征归一化
-    df["X"] = normalize_minmax(df["X"])
-    df["Y"] = normalize_minmax(df["Y"])
+    df["X"] = normalize_minmax(dx)
+    df["Y"] = normalize_minmax(dy)
     df["log_dist"] = normalize_minmax(df["log_dist"])
     df["rel_alt"] = normalize_zscore(df["rel_alt"])
     df["tilt_total"] = normalize_minmax(df["tilt_total"])
@@ -86,6 +85,12 @@ def preprocess_df(df: pd.DataFrame) -> pd.DataFrame:
     # 归一化 RSRP
     df["RSRP"] = rsrp_norm(df["RSRP"])
 
+    # 根据需要选择是否仅保存 X/Y 坐标
+    specific_cols = ["X", "Y", "RSRP"]
+    if specific_cols:
+        df = df[specific_cols]
+        return df
+
     # 拼接 one-hot
     df = pd.concat([df, clut, cell_clut], axis=1)
 
@@ -104,12 +109,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input",
-        default="datasets/raw/train_468101.csv",
+        default="datasets/raw/train_2304601.csv",
         help="Path to raw CSV",
     )
     parser.add_argument(
         "--output",
-        default="datasets/processed/train_468101.csv",
+        default="datasets/processed/train_2304601.csv",
         help="Path to save processed CSV",
     )
     args = parser.parse_args()

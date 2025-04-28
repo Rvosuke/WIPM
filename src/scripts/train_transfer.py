@@ -5,24 +5,17 @@
 用于0样本测试场景
 """
 
-from __future__ import annotations
-import torch, yaml, argparse, os
+import torch, yaml, argparse, sys, warnings
 from pathlib import Path
 import matplotlib.pyplot as plt
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, ConcatDataset
 from tqdm import tqdm
-import pandas as pd
 
-# 导入项目模块
-import sys
-
-sys.path.append(str(Path(__file__).parents[2]))  # 添加项目根目录到路径
+sys.path.append(str(Path(__file__).parents[2]))
 from src.data import RSMap
 from src.ndp import NDP
-from src.metrics import rmse, pcrr
+from src.train import evaluate, build_scheduler
 
 plt.rcParams["font.sans-serif"] = ["WenQuanYi Micro Hei"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -64,32 +57,6 @@ def load_multi_datasets(train_csv_paths, test_csv_path, batch_size):
     return train_dl, test_dl
 
 
-def evaluate(model_wrap, loader, device, desc="[Eval]"):
-    """评估模型性能"""
-    y_true_all, y_pred_all = [], []
-    model_wrap.model.eval()
-    with torch.no_grad():
-        for x, y in tqdm(loader, desc=desc, leave=False):
-            x, y = x.to(device), y.to(device)
-            y_hat = model_wrap.sample(x)
-            y_true_all.append(y)
-            y_pred_all.append(y_hat)
-    y_true = torch.cat(y_true_all)
-    y_pred = torch.cat(y_pred_all)
-    return rmse(y_true, y_pred), pcrr(y_true, y_pred)
-
-
-def build_scheduler(optimizer, cfg):
-    """构建学习率调度器"""
-    total_steps = cfg["epochs"] * cfg["iter_per_epoch"]
-    warmup_steps = int(0.05 * total_steps)
-    warm = LinearLR(optimizer, start_factor=0.1, total_iters=warmup_steps)
-    cosine = CosineAnnealingLR(
-        optimizer, T_max=total_steps - warmup_steps, eta_min=cfg.get("lr_min", 1e-6)
-    )
-    return SequentialLR(optimizer, schedulers=[warm, cosine], milestones=[warmup_steps])
-
-
 def train_transfer(cfg):
     """迁移学习训练函数"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -100,16 +67,12 @@ def train_transfer(cfg):
     test_csv_path = cfg["test_csv_path"]
     tr_dl, te_dl = load_multi_datasets(train_csv_paths, test_csv_path, cfg["batch"])
 
-    # 配置文件更新
     cfg["iter_per_epoch"] = len(tr_dl)
 
-    # 创建保存目录
     save_dir = Path(cfg.get("save_dir", "results/transfer"))
     ckpt_dir = save_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-    writer = SummaryWriter(log_dir=save_dir / "runs")
 
-    # 创建模型
     ndp_wrap = NDP(
         cfg["D"], cfg["T"], hidden=cfg["hidden"], n_layers=cfg["layers"], device=device
     )
@@ -121,15 +84,12 @@ def train_transfer(cfg):
         state_dict = torch.load(cfg["load_ckpt"], map_location=device)
         model.load_state_dict(state_dict)
 
-    # 优化器和学习率调度
     opt = AdamW(model.parameters(), lr=cfg["lr"], weight_decay=1e-2)
     lr_sched = build_scheduler(opt, cfg)
 
-    # 训练记录
     train_losses, val_rmses, val_pcrrs = [], [], []
     best_rmse = float("inf")
 
-    # 训练循环
     for epoch in range(cfg["epochs"]):
         model.train()
         total_loss = 0
@@ -148,17 +108,12 @@ def train_transfer(cfg):
         avg_loss = total_loss / len(tr_dl)
 
         # 在测试集上评估
-        rmse_val, pcrr_val = evaluate(ndp_wrap, te_dl, device, desc=f"[Test {epoch}]")
+        rmse_val, pcrr_val = evaluate(ndp_wrap, te_dl, device)
 
         # 记录结果
         train_losses.append(avg_loss)
         val_rmses.append(rmse_val)
         val_pcrrs.append(pcrr_val)
-
-        # 记录到TensorBoard
-        writer.add_scalar("Loss/train", avg_loss, epoch)
-        writer.add_scalar("RMSE/test", rmse_val, epoch)
-        writer.add_scalar("PCRR/test", pcrr_val, epoch)
 
         # 打印结果
         print(f"[Train] Epoch {epoch} | Avg Loss={avg_loss:.4f}")
@@ -203,14 +158,11 @@ def train_transfer(cfg):
             f.write(f"{k}: {v}\n")
 
     print(f"✓ 训练完成，结果已保存到 {save_dir}")
-    writer.close()
 
     return best_rmse
 
 
 if __name__ == "__main__":
-    import warnings
-
     warnings.filterwarnings("ignore")
 
     parser = argparse.ArgumentParser(description="迁移学习训练脚本")

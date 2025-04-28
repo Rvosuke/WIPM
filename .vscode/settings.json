@@ -1,34 +1,12 @@
 {
-    "editor.defaultFormatter": "GitHub.copilot",
-    "editor.experimentalGpuAcceleration": "on",
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter"
     },
-    "python.analysis.autoImportCompletions": true,
-    "editor.rulers": [80, 120],
-    "editor.renderWhitespace": "all",
+    "editor.rulers": [
+        80
+    ],
     "editor.tabSize": 4,
-    "editor.formatOnSave": true,
-    "editor.codeActionsOnSave": {
-        "source.fixAll": "explicit"
-    },
-    "editor.wordWrap": "on",
-    "editor.minimap.enabled": true,
-    "editor.suggestSelection": "first",
-    "editor.bracketPairColorization.enabled": true,
-    "editor.guides.bracketPairs": true,
-    "workbench.colorTheme": "Default Dark+",
-    "workbench.iconTheme": "vs-seti",
-    "workbench.editor.enablePreview": false,
-    "files.autoSave": "afterDelay",
-    "files.autoSaveDelay": 1000,
-    "files.trimTrailingWhitespace": true,
-    "files.insertFinalNewline": true,
-    "terminal.integrated.defaultProfile.linux": "bash",
-    "git.enableSmartCommit": true,
-    "git.confirmSync": false,
-    "window.zoomLevel": 0,
-    "explorer.confirmDelete": false,
-    "explorer.confirmDragAndDrop": false,
-    "telemetry.telemetryLevel": "off"
+    "[jsonc]": {
+        "editor.defaultFormatter": "vscode.json-language-features"
+    }
 }

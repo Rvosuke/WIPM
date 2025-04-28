@@ -1,4 +1,4 @@
-csv: datasets/processed/train.csv
+csv: datasets/processed/train_specific.csv
 seed: 42
 
 save_dir: results/baselines
@@ -7,7 +7,7 @@ linear_fit_intercept: true
 
 svr_kernel: rbf
 svr_C: 1.0
-svr_epsilon: 0.1
+svr_epsilon: 0.27
 svr_gamma: scale
 
 visualize: true

@@ -1,10 +1,9 @@
 # src/train.py
-from __future__ import annotations
-import torch, yaml, argparse, os
+import torch, yaml, argparse
+import pandas as pd
 from pathlib import Path
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
-from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
@@ -19,7 +18,7 @@ def evaluate(model_wrap, loader, device):
     with torch.no_grad():
         for x, y in tqdm(loader, desc="[Eval]", leave=False):
             x, y = x.to(device), y.to(device)
-            y_hat = model_wrap.sample(x)
+            y_hat = model_wrap.sample(x, seq_len=y.shape[1])
             y_true_all.append(y)
             y_pred_all.append(y_hat)
     y_true = torch.cat(y_true_all)
@@ -37,15 +36,46 @@ def build_scheduler(optimizer, cfg):
     return SequentialLR(optimizer, schedulers=[warm, cosine], milestones=[warmup_steps])
 
 
+def visualize(cfg, train_losses, val_rmses, val_pcrrs, save_dir):
+    # 绘图保存历史记录
+    _, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+    # 绘制训练损失
+    ax1.plot(range(cfg["epochs"]), train_losses, "b-", label="Train Loss")
+    ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Loss")
+    ax1.set_title("Train Loss Curve")
+    ax1.grid(True)
+    ax1.legend()
+
+    # 绘制验证指标
+    val_epochs = list(
+        range(10, cfg["epochs"] + 1, 10)
+    )  # 验证指标是在第9、19、29...个epoch记录的
+    ax2.plot(val_epochs, val_rmses, "r-", marker="o", label="Validation RMSE")
+    ax2.plot(val_epochs, val_pcrrs, "g-", marker="s", label="Validation PCRR")
+    ax2.set_xlabel("Epoch")
+    ax2.set_ylabel("Metric Value")
+    ax2.set_title("Validation Metrics Curve")
+    ax2.grid(True)
+    ax2.legend()
+
+    # 调整布局并保存
+    plt.tight_layout()
+    plt.savefig(save_dir / "metrics_curve.png", dpi=300)
+    plt.close()
+
+
 def train(cfg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tr_dl, te_dl = split_loaders(cfg["csv"], cfg["batch"], split=0.9, seed=cfg["seed"])
+    tr_dl, te_dl = split_loaders(
+        cfg["csv"], cfg["batch"], split=cfg["train_rate"], seed=cfg["seed"]
+    )
     cfg["iter_per_epoch"] = len(tr_dl)
 
     save_dir = Path(cfg.get("save_dir", "results"))
     ckpt_dir = save_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-    writer = SummaryWriter(log_dir=save_dir / "runs")
 
     ndp_wrap = NDP(
         cfg["D"], cfg["T"], hidden=cfg["hidden"], n_layers=cfg["layers"], device=device
@@ -62,8 +92,7 @@ def train(cfg):
         total_loss = 0
         pbar = tqdm(tr_dl, desc=f"Epoch {epoch}")
         for x, y in pbar:
-            x, y = x.to(device), y.to(device)
-            loss = ndp_wrap.loss(x, y)
+            loss = ndp_wrap.loss(x.to(device), y.to(device))
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -72,36 +101,27 @@ def train(cfg):
             pbar.set_postfix(loss=loss.item(), lr=opt.param_groups[0]["lr"])
 
         avg_loss = total_loss / len(tr_dl)
-        rmse_val, pcrr_val = evaluate(ndp_wrap, te_dl, device)
-
         train_losses.append(avg_loss)
-        val_rmses.append(rmse_val)
-        val_pcrrs.append(pcrr_val)
-
-        writer.add_scalar("Loss/train", avg_loss, epoch)
-        writer.add_scalar("RMSE/val", rmse_val, epoch)
-        writer.add_scalar("PCRR/val", pcrr_val, epoch)
-
         print(f"[Train] Epoch {epoch} | Avg Loss={avg_loss:.4f}")
-        print(f"[Val]   RMSE={rmse_val:.3f} | PCRR={pcrr_val:.3f}")
+
+        if epoch % 10 == 9:
+            rmse_val, pcrr_val = evaluate(ndp_wrap, te_dl, device)
+            val_rmses.append(rmse_val)
+            val_pcrrs.append(pcrr_val)
+            print(f"[Val]   RMSE={rmse_val:.3f} | PCRR={pcrr_val:.3f}")
 
         if rmse_val < best_rmse:
             best_rmse = rmse_val
             torch.save(model.state_dict(), ckpt_dir / "ndp_best.pt")
-
-    # 可选：绘图保存
-    plt.figure()
-    plt.plot(train_losses, label="Train Loss")
-    plt.plot(val_rmses, label="Val RMSE")
-    plt.plot(val_pcrrs, label="Val PCRR")
-    plt.xlabel("Epoch")
-    plt.legend()
-    plt.grid(True)
-    plt.title("Training Progress")
-    plt.savefig(save_dir / "metrics_curve.png")
-    plt.close()
-
-    writer.close()
+    visualize(cfg, train_losses, val_rmses, val_pcrrs, save_dir)
+    val_metrics_df = pd.DataFrame(
+        {
+            "Epoch": range(10, cfg["epochs"] + 1, 10),
+            "RMSE": val_rmses,
+            "PCRR": val_pcrrs,
+        }
+    )
+    val_metrics_df.to_csv(save_dir / "validation_metrics.csv", index=False)
 
 
 if __name__ == "__main__":

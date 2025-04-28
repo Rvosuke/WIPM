@@ -1,14 +1,14 @@
 # src/baseline_models.py
-from __future__ import annotations
-import torch
+import torch, yaml, argparse
 import matplotlib.pyplot as plt
-import yaml
-import argparse
 from pathlib import Path
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
+import pandas as pd, numpy as np
+import matplotlib.pyplot as plt, seaborn as sns
+from matplotlib.colors import LinearSegmentedColormap
 
 from ..data import RSMap
 from ..metrics import rmse, pcrr
@@ -52,42 +52,19 @@ class BaselineModel:
         self, csv_path, title=None, save_path=None, show_residual=True
     ):
         """可视化模型在栅格地图上的预测结果"""
-        import pandas as pd
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-        from matplotlib.colors import LinearSegmentedColormap
-        from pathlib import Path
-        import numpy as np
-
-        # 读取CSV数据
         df = pd.read_csv(csv_path)
-        required_cols = {"X", "Y", "RSRP"}
-        if not required_cols.issubset(df.columns):
-            missing = required_cols - set(df.columns)
-            raise ValueError(f"❌ CSV中缺失以下列：{missing}")
 
         # 提取特征和真实值
         x_cols = [c for c in df.columns if c.upper() != "RSRP"]
         X = df[x_cols].values
-        y_true = df["RSRP"].values
+        df["RSRP_PRED"] = self.predict(X).flatten()
 
-        # 获取模型预测值
-        y_pred = self.predict(X).flatten()
-
-        # 添加预测值和残差到数据框
-        df["RSRP_PRED"] = y_pred
-        df["RESIDUAL"] = np.abs(y_pred - y_true)
-
-        # 创建透视表
         pivot_true = df.pivot_table(index="Y", columns="X", values="RSRP")
         pivot_pred = df.pivot_table(index="Y", columns="X", values="RSRP_PRED")
-        pivot_res = df.pivot_table(index="Y", columns="X", values="RESIDUAL")
 
-        # 生成可视化图表
-        fig, axes = plt.subplots(1, 3 if show_residual else 2, figsize=(18, 5))
+        fig, axes = plt.subplots(1, 2, figsize=(18, 5))
 
-        # 绘制真实值热力图
-        sns.heatmap(
+        sns.heatmap(  # 绘制真实值热力图
             pivot_true.sort_index(ascending=False),
             cmap="YlGnBu",
             vmin=0.0,
@@ -98,8 +75,7 @@ class BaselineModel:
         axes[0].set_title("Ground Truth")
         axes[0].axis("off")
 
-        # 绘制预测值热力图
-        sns.heatmap(
+        sns.heatmap(  # 绘制预测值热力图
             pivot_pred.sort_index(ascending=False),
             cmap="YlGnBu",
             vmin=0.0,
@@ -110,84 +86,46 @@ class BaselineModel:
         axes[1].set_title(f"{self.name} Prediction")
         axes[1].axis("off")
 
-        # 绘制残差热力图
-        if show_residual:
-            white_red = LinearSegmentedColormap.from_list(
-                "whitered",
-                ["white", "white", "cyan", "cyan", "blue", "blue", "orange", "red"],
-            )
-            sns.heatmap(
-                pivot_res.sort_index(ascending=False),
-                cmap=white_red,
-                vmin=0.0,
-                vmax=1.0,
-                ax=axes[2],
-                cbar_kws={"label": "|Error|"},
-            )
-            axes[2].set_title("Residual (Abs Error)")
-            axes[2].axis("off")
-
         # 设置标题和布局
         plt.suptitle(title or f"{self.name} - {Path(csv_path).stem}")
         plt.tight_layout()
 
-        # 保存或显示图像
-        if save_path:
-            save_path = Path(save_path)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path)
-            print(f"✅ {self.name}模型可视化图像已保存至: {save_path}")
-        else:
-            plt.show()
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path)
+        print(f"✅ {self.name}模型可视化图像已保存至: {save_path}")
 
 
 class LinearModel(BaselineModel):
-    """线性回归模型实现"""
-
     def __init__(self, params=None):
         super().__init__(name="Linear")
-        # 线性回归模型的参数，注意sklearn的LinearRegression没有normalize参数
-        default_params = {"fit_intercept": True}
-        self.params = params if params else default_params
+        self.params = params
         self.model = LinearRegression(**self.params)
 
     def train(self, x_train, y_train):
-        """训练线性回归模型"""
-        # 数据集已经归一化，不需要再次标准化
         self.model.fit(x_train, y_train)
         return self
 
     def predict(self, x):
-        """使用训练好的模型进行预测"""
-        # 数据集已经归一化，不需要再次标准化
         return self.model.predict(x).reshape(-1, 1)
 
 
 class SVRModel(BaselineModel):
-    """支持向量回归模型实现"""
-
     def __init__(self, params=None):
         super().__init__(name="SVR")
-        default_params = {"kernel": "rbf", "C": 1.0, "epsilon": 0.1, "gamma": "scale"}
-        self.params = params if params else default_params
+        self.params = params
         self.model = SVR(**self.params)
 
     def train(self, x_train, y_train):
-        """训练SVR模型"""
-        # 数据集已经归一化，不需要再次标准化
-        # SVR需要展平目标值
         self.model.fit(x_train, y_train.ravel())
         return self
 
     def predict(self, x):
-        """使用训练好的模型进行预测"""
-        # 数据集已经归一化，不需要再次标准化
         return self.model.predict(x).reshape(-1, 1)
 
 
-def load_and_prepare_data(csv_path, test_size=0.2, random_state=42):
+def load_and_prepare_data(csv_path, test_size=0.5, random_state=42):
     """加载和准备数据集"""
-    # 使用项目中的数据集类
     dataset = RSMap(Path(csv_path))
     df = dataset.df
 
@@ -197,17 +135,13 @@ def load_and_prepare_data(csv_path, test_size=0.2, random_state=42):
     y = df["RSRP"].values.reshape(-1, 1)
 
     # 划分训练集和测试集
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state
-    )
-
-    return X_train, X_test, y_train, y_test, x_cols
+    return train_test_split(X, y, test_size=test_size, random_state=random_state)
 
 
 def train_and_evaluate(cfg):
     """训练和评估所有基线模型"""
     print(f"🔄 加载数据集: {cfg['csv']}")
-    X_train, X_test, y_train, y_test, feature_names = load_and_prepare_data(
+    X_train, X_test, y_train, y_test = load_and_prepare_data(
         cfg["csv"], test_size=0.5, random_state=cfg["seed"]
     )
 
@@ -382,7 +316,7 @@ def plot_comparison(baseline_results, ndp_metrics, save_dir):
 
     # RMSE 对比 (越低越好)
     bars1 = ax1.bar(models, rmse_values, color=["#5DA5DA", "#FAA43A", "#60BD68"])
-    ax1.set_title("RMSE 对比")
+    ax1.set_title("RMSE Comparison")
     ax1.set_ylabel("RMSE")
     ax1.grid(axis="y", linestyle="--", alpha=0.7)
 
@@ -399,7 +333,7 @@ def plot_comparison(baseline_results, ndp_metrics, save_dir):
 
     # PCRR 对比 (越高越好)
     bars2 = ax2.bar(models, pcrr_values, color=["#5DA5DA", "#FAA43A", "#60BD68"])
-    ax2.set_title("PCRR 对比")
+    ax2.set_title("PCRR Comparison")
     ax2.set_ylabel("PCRR")
     ax2.grid(axis="y", linestyle="--", alpha=0.7)
 

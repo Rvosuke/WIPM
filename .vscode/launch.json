@@ -1,0 +1,63 @@
+{
+    "version": "0.3.0",
+    "configurations": [
+        {
+            "name": "训练模型(调试模式)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.train",
+            "args": [
+                "--cfg",
+                "configs/base.yaml"
+            ],
+            "justMyCode": false,
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "带断点训练模型",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.train",
+            "args": [
+                "--cfg",
+                "configs/base.yaml"
+            ],
+            "justMyCode": true,
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "测试评估单个站点",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/visualize_rsrp.py",
+            "args": [
+                "--csv",
+                "datasets/eval_site.csv",
+                "--cfg",
+                "configs/base.yaml",
+                "--ckpt",
+                "results/checkpoints/ndp_best.pt",
+                "--residual"
+            ],
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+    ],
+    "compounds": [
+        {
+            "name": "训练+可视化",
+            "configurations": [
+                "训练模型(调试模式)",
+                "测试评估单个站点"
+            ]
+        }
+    ]
+}
