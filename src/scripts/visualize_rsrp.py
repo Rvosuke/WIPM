@@ -1,4 +1,4 @@
-# scripts/visualize_rsrp.py
+# src/scripts/visualize_rsrp.py
 import pandas as pd, numpy as np
 import matplotlib.pyplot as plt, seaborn as sns
 import torch, yaml, argparse
@@ -8,8 +8,7 @@ from tqdm import tqdm
 from src.ndp import NDP
 
 
-def load_model(cfg_path: str, ckpt_path: str, device: str = "cpu"):
-    cfg = yaml.safe_load(open(cfg_path))
+def load_model(cfg: dict, ckpt_path: str, device: str = "cpu"):
     model_wrap = NDP(
         in_dim=cfg["D"],
         time_step=cfg["T"],
@@ -33,7 +32,7 @@ def interpolate_grid(resolution=100):
 
 def visualize_rsrp_map(
     csv_path: str,
-    cfg_path: str = None,
+    cfg: dict = None,
     ckpt_path: str = None,
     title: str = None,
     save_path: str = None,
@@ -51,7 +50,7 @@ def visualize_rsrp_map(
     pivot_true = df.pivot_table(index="Y", columns="X", values="RSRP")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_model(cfg_path, ckpt_path, device)
+    model = load_model(cfg, ckpt_path, device)
     x_cols = [c for c in df.columns if c.upper() != "RSRP"]
 
     if full_coverage:  # 如果需要全覆盖，则创建高分辨率网格
@@ -143,7 +142,7 @@ if __name__ == "__main__":
 
     visualize_rsrp_map(
         args.csv,
-        args.cfg,
+        yaml.safe_load(open(args.cfg)),
         args.ckpt,
         args.title,
         save_path,

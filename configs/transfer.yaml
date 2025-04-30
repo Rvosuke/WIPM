@@ -1,9 +1,9 @@
 train_csv_paths:
-  - datasets/processed/train_2304601.csv
+  - datasets/processed/train_111801.csv
   - datasets/processed/train_468101.csv
-test_csv_path: datasets/processed/train_111801.csv
+test_csv_path: datasets/processed/train_2304601.csv
 
-batch: 64
+batch: 256
 N: 1
 D: 2
 T: 25
@@ -11,9 +11,9 @@ hidden: 256
 layers: 6
 lr: 0.0003
 lr_min: 0.000001
-epochs: 120
-seed: 42
+epochs: 300
+seed: 2025
 
-load_ckpt: results/checkpoints/ndp_best.pt
+# load_ckpt: results/checkpoints/ndp_best.pt
 
 save_dir: results/transfer

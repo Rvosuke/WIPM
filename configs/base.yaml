@@ -1,5 +1,5 @@
-csv: datasets/processed/train_specific.csv
-batch: 128
+csv: datasets/processed/train_2304601.csv
+batch: 256
 train_rate: 0.5
 N: 1
 D: 2
@@ -9,5 +9,5 @@ layers: 6
 lr: 0.0003
 lr_min: 0.000001
 epochs: 300
-ckpt: checkpoints/ndp_e19.pt
-seed: 42
+ckpt: checkpoints/
+seed: 2025

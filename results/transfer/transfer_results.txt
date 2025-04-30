@@ -1,0 +1,20 @@
+迁移学习结果
+最佳测试 RMSE: 0.279065
+最终测试 RMSE: 0.279065
+最终测试 PCRR: 0.160797
+
+训练配置:
+train_csv_paths: ['datasets/processed/train_111801.csv', 'datasets/processed/train_468101.csv']
+test_csv_path: datasets/processed/train_2304601.csv
+batch: 2048
+N: 1
+D: 2
+T: 25
+hidden: 256
+layers: 6
+lr: 0.0003
+lr_min: 1e-06
+epochs: 30
+seed: 42
+save_dir: results/transfer
+iter_per_epoch: 6

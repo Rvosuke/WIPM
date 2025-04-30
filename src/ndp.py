@@ -182,11 +182,11 @@ class NDP:
         """
          计算时间序列扩散模型的损失函数
 
-        参数:
-            x0: 输入特征，形状为[B, D]或[B, N_in, D]
-            y0: 目标值，形状为[B, 1]（单步预测）或[B, N_out, 1]（序列预测）
+        Args:
+            x0: 输入特征，形状为[B, N_in, D]
+            y0: 目标值，形状为[B, N_out, 1]
 
-        返回:
+        Returns:
             mse损失
         """
         device = x0.device
