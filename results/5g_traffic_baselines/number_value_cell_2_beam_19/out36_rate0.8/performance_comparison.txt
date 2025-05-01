@@ -1,20 +1,20 @@
 模型性能对比:
 ========================================
 Linear:
-  MSE: 0.2677
-  MAE: 0.3988
-  Transfer MSE: 111.4621
-  Transfer MAE: 8.7718
+  MSE: 0.8537
+  MAE: 0.7428
+  Transfer MSE: 1.2293
+  Transfer MAE: 0.9310
 ----------------------------------------
 SVR:
-  MSE: 0.2713
-  MAE: 0.3697
-  Transfer MSE: 0.3151
-  Transfer MAE: 0.3780
+  MSE: 0.3550
+  MAE: 0.3943
+  Transfer MSE: 1.0706
+  Transfer MAE: 0.8871
 ----------------------------------------
 NDP:
-  MSE: 0.8291
-  MAE: 0.7363
-  Transfer MSE: 0.9266
-  Transfer MAE: 0.8256
+  MSE: 0.1144
+  MAE: 0.2560
+  Transfer MSE: 3.4954
+  Transfer MAE: 1.4277
 ----------------------------------------
