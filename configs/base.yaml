@@ -1,4 +1,4 @@
-csv: datasets/processed/train_2304601.csv
+csv: datasets/radiomap/train_2304601.csv
 batch: 256
 train_rate: 0.5
 N: 1

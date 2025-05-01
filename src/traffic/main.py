@@ -5,124 +5,17 @@
 用于执行基于NDP模型的5G流量数据预测实验
 """
 
-import os, sys, argparse, torch, yaml, warnings
-import numpy as np, pandas as pd
+import sys, argparse, torch, yaml, warnings
+import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from datetime import datetime
-from torch.utils.data import Dataset, DataLoader
-from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from src.ndp import NDP
-from src.train import train_epoch, build_scheduler
-
-
-class TimeSeriesDataset(Dataset):
-    """时间序列数据集类 处理5G流量数据"""
-
-    def __init__(self, data, input_window=12, pred_window=24, stride=1):
-        """
-        初始化时间序列数据集
-
-        Args:
-            data: 原始时间序列数据（已归一化）
-            input_window: 输入窗口大小(默认72小时-3天)
-            pred_window: 预测窗口大小(长期预测72小时,短期预测36小时)
-            stride: 滑动窗口步长(默认为1)
-        """
-        self.data = data
-        self.input_window = input_window
-        self.pred_window = pred_window
-        self.stride = stride
-        self._prepare_sequences()
-
-    def _prepare_sequences(self):
-        """准备输入序列和目标序列"""
-        self.samples = []
-        total_len = len(self.data)
-
-        for i in range(
-            0, total_len - self.input_window - self.pred_window + 1, self.stride
-        ):
-            x_seq = self.data[i : i + self.input_window]
-            y_seq = self.data[
-                i + self.input_window : i + self.input_window + self.pred_window, 0:1
-            ]  # 只取value列作为预测目标
-            self.samples.append((x_seq, y_seq))
-
-    def __len__(self):
-        return len(self.samples)
-
-    def __getitem__(self, idx):
-        x, y = self.samples[idx]
-        # 返回形状为[input_window, feature_dim]的输入和形状为[pred_window, 1]的输出
-        return torch.FloatTensor(x), torch.FloatTensor(y)
-
-
-def load_and_preprocess(file_path, feature_cols=["value", "ma_value", "lg_ma_value"]):
-    """
-    加载并预处理5G流量数据, 首先检查数据完整性, 提取特征并进行标准化
-
-    Args:
-        file_path: CSV文件路径
-        feature_cols: 使用的特征列
-
-    Returns:
-        预处理后的数据，特征缩放器
-    """
-    print(f"📂 加载数据: {file_path}")
-    df = pd.read_csv(file_path, parse_dates=["date"])
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(df[feature_cols].values)
-    print(f"✅ 数据预处理完成，标准化后形状: {X_scaled.shape}")
-    return X_scaled, scaler, df["date"].values
-
-
-def train_test_split(data, dates, split_ratio):
-    """
-    随机划分训练集和测试集
-
-    Args:
-        data: 预处理后的数据
-        dates: 对应的日期数组
-        split_ratio: 划分比例
-        is_many_shot: 是否为多样本训练模式
-
-    Returns:
-        训练数据，测试数据，训练日期，测试日期
-    """
-    n_samples = len(data)
-    indices = np.arange(n_samples)
-    np.random.shuffle(indices)
-    train_size = int(n_samples * split_ratio)
-    tr_idx = indices[:]
-    te_idx = indices[train_size:]
-    return data[tr_idx], data[te_idx], dates[tr_idx], dates[te_idx]
-
-
-def create_data_loaders(
-    train_data, test_data, input_window, pred_window, batch_size=64
-):
-    """
-    创建数据加载器
-
-    Args:
-        train_data: 训练数据
-        test_data: 测试数据
-        input_window: 输入窗口大小
-        pred_window: 预测窗口大小
-        batch_size: 批次大小
-
-    Returns:
-        训练数据加载器，测试数据加载器
-    """
-    train_dataset = TimeSeriesDataset(train_data, input_window, pred_window)
-    test_dataset = TimeSeriesDataset(test_data, input_window, pred_window)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    return train_loader, test_loader, train_dataset, test_dataset
+from src.data import TrafficSeries
+from src.utils import build_scheduler
 
 
 @torch.no_grad()
@@ -178,12 +71,8 @@ def visualize_sample(preds, targets, save_path, sample_idx=0):
 
 def noise_robustness_test(
     model,
-    test_data,
-    test_dates,
-    input_window,
-    pred_window,
+    test_dataset,
     device,
-    scaler,
     noise_levels=[0.01, 0.02, 0.03, 0.04],
     batch_size=64,
     save_dir=None,
@@ -195,15 +84,13 @@ def noise_robustness_test(
         print(f"\n🧪 噪声水平 {noise_level} 的鲁棒性测试")
 
         # 添加噪声到测试数据
-        test_data_noisy = test_data.copy()
-        test_data_noisy += np.random.normal(0, noise_level, test_data.shape)
+        test_dataset.data += np.random.normal(0, noise_level, test_dataset.data)
+        test_dataset._prepare_sequences()
 
-        # 创建带噪声的测试加载器
-        test_dataset = TimeSeriesDataset(test_data_noisy, input_window, pred_window)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
 
         # 评估在噪声数据上的性能
-        mse, mae, preds, targets = evaluate(model, test_loader, device)
+        mse, mae, _, _ = evaluate(model, test_loader, device)
 
         # 记录结果
         results.append({"noise_level": noise_level, "mse": mse, "mae": mae})
@@ -266,13 +153,15 @@ def main(cfg):
     ckpts_dirs = save_dir / "checkpoints"
     ckpts_dirs.mkdir(exist_ok=True)
 
-    data, scaler, dates = load_and_preprocess(cfg["csv"])
-    train_data, test_data, train_dates, test_dates = train_test_split(
-        data, dates, split_ratio=cfg["train_rate"]
+    tr_ds = TrafficSeries(
+        cfg["csv"], cfg["input_len"], cfg["output_len"], cfg["train_rate"], train=True
     )
-    tr_dl, te_dl, _, _ = create_data_loaders(
-        train_data, test_data, cfg["input_len"], cfg["output_len"], cfg["batch"]
+    te_ds = TrafficSeries(
+        cfg["csv"], cfg["input_len"], cfg["output_len"], cfg["train_rate"], train=False
     )
+    tr_dl = DataLoader(tr_ds, batch_size=cfg["batch"], shuffle=True)
+    te_dl = DataLoader(te_ds, batch_size=cfg["batch"], shuffle=False)
+
     cfg["iter_per_epoch"] = len(tr_dl)
 
     ndp_wrap = NDP(
@@ -292,7 +181,7 @@ def main(cfg):
         train_losses, val_mses, val_maes = [], [], []
         best_mse = float("inf")
         for epoch in range(epochs):
-            avg_loss = train_epoch(tr_dl, epoch, ndp_wrap, opt, device, lr_sched)
+            avg_loss = ndp_wrap.train_epoch(tr_dl, epoch, opt, device, lr_sched)
             train_losses.append(avg_loss)
             print(f"[Train] Epoch {epoch} | Avg Loss={avg_loss:.4f}")
 
@@ -326,12 +215,10 @@ def main(cfg):
         # 进行噪声鲁棒性测试
         noise_robustness_test(
             ndp_wrap,
-            test_data,
-            test_dates,
+            te_ds,
             cfg["input_len"],
             cfg["output_len"],
             device,
-            scaler,
             save_dir=save_dir,
         )
 

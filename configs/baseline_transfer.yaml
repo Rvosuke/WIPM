@@ -1,8 +1,8 @@
 # 训练和测试数据集路径配置，与NDP迁移学习保持一致
 train_csv_paths:
-  - datasets/processed/train_111801.csv
-  - datasets/processed/train_468101.csv
-test_csv_path: datasets/processed/train_2304601.csv
+  - datasets/radiomap/train_111801.csv
+  - datasets/radiomap/train_468101.csv
+test_csv_path: datasets/radiomap/train_2304601.csv
 
 # 基线模型参数
 linear_fit_intercept: true

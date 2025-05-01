@@ -1,4 +1,4 @@
-csv: datasets/processed/train_specific.csv
+csv: datasets/radiomap/train_specific.csv
 seed: 42
 
 save_dir: results/baselines
@@ -11,7 +11,7 @@ svr_epsilon: 0.27
 svr_gamma: scale
 
 visualize: true
-visualize_csv: datasets/processed/train_2304601.csv
+visualize_csv: datasets/radiomap/train_2304601.csv
 visualize_title: Baselines
 visualize_save: true
 show_residual: true

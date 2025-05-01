@@ -1,7 +1,7 @@
 # src/ndp.py
-from __future__ import annotations
 import math, torch
 from torch import nn, Tensor
+from tqdm import tqdm
 from einops import rearrange
 from dataclasses import dataclass
 
@@ -221,6 +221,20 @@ class NDP:
     def __init__(self, in_dim, time_step, device, **model_kw):
         self.model = NDPNoisePredictor(in_dim, **model_kw).to(device)
         self.sched = DiffusionSchedule(timesteps=time_step, device=device)
+
+    def train_epoch(self, train_loader, epoch, optimizer, device, scheduler=None):
+        self.model.train()
+        total_loss = 0
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
+        for x, y in pbar:
+            loss = self.loss(x.to(device), y.to(device))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            scheduler.step() if scheduler else None
+            total_loss += loss.item()
+            pbar.set_postfix(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
+        return total_loss / len(train_loader)
 
     def loss(self, x0: torch.Tensor, y0: torch.Tensor) -> torch.Tensor:
         """

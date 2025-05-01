@@ -5,27 +5,21 @@
 比较线性回归和SVR与NDP模型在5G流量预测任务上的性能
 """
 
-import os, sys, argparse, torch, yaml
+import sys, argparse, torch, yaml
 import numpy as np, pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from datetime import datetime
-from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
 from sklearn.multioutput import MultiOutputRegressor
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 np.random.seed(2025)
 
 from src.ndp import NDP
-from src.traffic.main import (
-    load_and_preprocess,
-    train_test_split,
-    create_data_loaders,
-    evaluate,
-)
+from src.data import TrafficSeries
+from src.traffic.main import evaluate
 
 
 class BaselineModel:
@@ -33,32 +27,18 @@ class BaselineModel:
         self.name = name
 
     def train(self, train_data):
-        print(f"🏋️‍♀️ 正在训练 {self.name} 模型...")
-        X_train, y_train = [], []
-        for x, y in train_data:
-            X_train.append(x.reshape(-1).numpy())
-            y_train.append(y.squeeze(-1).numpy())
-        X_train = np.vstack(X_train)
-        y_train = np.vstack(y_train)
+        X_train, y_train = train_data
         self.model.fit(X_train, y_train)
         print(f"✅ {self.name} 模型训练完成")
 
-    def evaluate(self, test_loader):
+    def evaluate(self, test_data):
         print(f"🔍 评估 {self.name} 模型...")
-        X_test, y_test = [], []
-        for x, y in test_loader:
-            X_test.append(x.reshape(-1).numpy())
-            y_test.append(y.squeeze(-1).numpy())
-        X_test = np.vstack(X_test)
-        y_test = np.vstack(y_test)
+        X_test, y_test = test_data
         y_pred = self.model.predict(X_test)
         mse = np.mean((y_pred - y_test) ** 2)
         mae = np.mean(np.abs(y_pred - y_test))
         print(f"[{self.name}] MSE: {mse:.4f}, MAE: {mae:.4f}")
         return mse, mae, y_pred, y_test
-
-    def interface(self, x):
-        pass
 
 
 class LinearModel(BaselineModel):
@@ -133,7 +113,6 @@ def create_performance_table(model_results, save_dir):
     """创建性能对比表格并保存"""
     # 准备表格数据
     models = list(model_results.keys())
-    metrics = ["MSE", "MAE"]
     data = {
         "Model": models,
         "MSE": [model_results[model]["mse"] for model in models],
@@ -142,10 +121,8 @@ def create_performance_table(model_results, save_dir):
         "Transfer MAE": [model_results[model]["trans_mae"] for model in models],
     }
 
-    # 创建DataFrame
+    # 创建DataFrame, 保存为csv
     df = pd.DataFrame(data)
-
-    # 保存为CSV
     save_path = save_dir / "performance_comparison.csv"
     df.to_csv(save_path, index=False)
 
@@ -174,18 +151,23 @@ def run_baseline_comparison(cfg):
     save_dir.mkdir(parents=True, exist_ok=True)
 
     # 加载和预处理数据
-    data, _, dates = load_and_preprocess(cfg["csv"])
-    train_data, test_data, _, _ = train_test_split(
-        data, dates, split_ratio=cfg["train_rate"]
+    train_dataset = TrafficSeries(
+        cfg["csv"], cfg["input_len"], cfg["output_len"], cfg["train_rate"], train=True
     )
-    train_loader, test_loader, train_dataset, test_dataset = create_data_loaders(
-        train_data, test_data, cfg["input_len"], cfg["output_len"], cfg["batch"]
+    test_dataset = TrafficSeries(
+        cfg["csv"], cfg["input_len"], cfg["output_len"], cfg["train_rate"], train=False
     )
+    test_loader = DataLoader(test_dataset, batch_size=cfg["batch"], shuffle=False)
 
-    transfer_data, _, datas = load_and_preprocess(cfg["transfer_csv"])
-    _, transfer_data, _, _ = train_test_split(transfer_data, datas, 0)
-    _, transfer_loader, _, transfer_dataset = create_data_loaders(
-        transfer_data, transfer_data, cfg["input_len"], cfg["output_len"], cfg["batch"]
+    transfer_dataset = TrafficSeries(
+        cfg["transfer_csv"],
+        cfg["input_len"],
+        cfg["output_len"],
+        split_ratio=0,
+        train=False,
+    )
+    transfer_loader = DataLoader(
+        transfer_dataset, batch_size=cfg["batch"], shuffle=False
     )
 
     # 初始化模型
@@ -209,10 +191,10 @@ def run_baseline_comparison(cfg):
     # 训练和评估每个模型
     for name, model in models.items():
         if name in ["Linear", "SVR"]:
-            model.train(train_dataset)
-            mse, mae, predictions, targets = model.evaluate(test_dataset)
+            model.train(train_dataset.to_numpy())
+            mse, mae, predictions, targets = model.evaluate(test_dataset.to_numpy())
             trans_mse, trans_mae, trans_pre, trans_targ = model.evaluate(
-                transfer_dataset
+                transfer_dataset.to_numpy()
             )
         else:  # NDP模型
             model.model.load_state_dict(
@@ -222,7 +204,7 @@ def run_baseline_comparison(cfg):
                 )
             )
             # 获取最佳性能
-            print("评估NDP模型")
+            print("🔍 评估NDP模型")
             mse, mae, predictions, targets = evaluate(model, test_loader, device)
             predictions = predictions.squeeze(-1)
             targets = targets.squeeze(-1)

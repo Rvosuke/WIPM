@@ -13,5 +13,5 @@ lr_min: 0.0001
 epochs: 1000
 device: cuda  # 0, 1, or cpu
 seed: 2025
-is_train: false
-noise_test: false
+is_train: true
+noise_test: true
