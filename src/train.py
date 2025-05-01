@@ -1,5 +1,5 @@
 # src/train.py
-import torch, yaml, argparse
+import torch, yaml, argparse, warnings
 import pandas as pd
 from pathlib import Path
 from torch.optim import AdamW
@@ -74,7 +74,7 @@ def train_epoch(train_loader, epoch, wrap, optimizer, device, scheduler=None):
     return total_loss / len(train_loader)
 
 
-def train(cfg):
+def main(cfg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tr_dl, te_dl = split_loaders(
         cfg["csv"], cfg["batch"], split=cfg["train_rate"], seed=cfg["seed"]
@@ -119,11 +119,9 @@ def train(cfg):
 
 
 if __name__ == "__main__":
-    import warnings
-
     warnings.filterwarnings("ignore")
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", default="configs/base.yaml")
     args = parser.parse_args()
     cfg = yaml.safe_load(open(args.cfg))
-    train(cfg)
+    main(cfg)

@@ -61,8 +61,36 @@ class TimeEmbedding(nn.Module):
         return torch.cat((emb.sin(), emb.cos()), dim=1)
 
 
+class ResidualMLP(nn.Module):
+    def __init__(self, in_dim, hidden_dim, out_dim, dropout=0.1):
+        super().__init__()
+
+        self.norm = nn.LayerNorm(in_dim)
+        self.in_fc = nn.Linear(in_dim, hidden_dim)
+
+        self.fc1 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+
+        self.out_fc = nn.Linear(hidden_dim, out_dim)
+
+        self.gelu = nn.GELU()
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        x = self.in_fc(self.norm(x))
+        x = self.gelu(x)
+
+        x = self.gelu(self.fc1(x)) + x
+        x = self.dropout(x)
+
+        x = self.gelu(self.fc2(x)) + x
+        x = self.dropout(x)
+
+        return self.out_fc(x)
+
+
 class BiDimAttnBlock(nn.Module):
-    def __init__(self, hidden: int, num_heads: int = 4, dropout: float = 0.1) -> None:
+    def __init__(self, hidden: int, num_heads: int = 4, dropout: float = 0) -> None:
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden)
         self.norm2 = nn.LayerNorm(hidden)
@@ -102,9 +130,12 @@ class BiDimAttnBlock(nn.Module):
 
 
 class NDPNoisePredictor(nn.Module):
+
     def __init__(
         self,
         in_dim: int,
+        in_len: int = 0,
+        out_len: int = 0,
         out_dim: int = 1,
         hidden: int = 256,
         n_layers: int = 6,
@@ -112,6 +143,7 @@ class NDPNoisePredictor(nn.Module):
     ):
         super().__init__()
         self.hidden = hidden
+        self.gelu = nn.GELU()
         self.x_proj = nn.Sequential(
             nn.Linear(in_dim, hidden),
             nn.GELU(),
@@ -135,6 +167,9 @@ class NDPNoisePredictor(nn.Module):
         self.mlp = nn.Sequential(
             nn.GELU(), nn.Linear(hidden, hidden), nn.GELU(), nn.Linear(hidden, out_dim)
         )
+        if in_len > 1:
+            self.len_proj1 = nn.Linear(in_len, out_len)
+            self.len_proj2 = nn.Linear(in_len, out_len)
 
         self.apply(self._init_weights)
 
@@ -160,16 +195,25 @@ class NDPNoisePredictor(nn.Module):
             预测值, 与y_noisy形状相同
         """
         h_x = self.x_proj(x)  # [batch, in_len, in_dim] -> [batch, in_len, dim_hid]
-        h_y = self.y_proj(y_noisy)  # [..., out_dim] -> [batch, in_len, dim_hid]
         time = self.time_embed(t)  # [batch] -> [batch, dim_hid]
-        time = self.time_dense(time).unsqueeze(1).unsqueeze(2)  # [batch, 1, 1, dim_hid]
-        hidden = h_x.unsqueeze(2) + h_y.unsqueeze(1) + time
-        del h_x, h_y, time
+        if x.shape[1] > 1:
+            h_y = (
+                self.gelu(self.len_proj1(h_x.permute(0, 2, 1)).permute(0, 2, 1))
+                + y_noisy
+            )
+        else:
+            h_y = self.y_proj(y_noisy)  # [..., out_dim] -> [batch, out_len, dim_hid]
+            time = self.time_dense(time)  # [batch, 1, 1, dim_hid]
+
+        hidden = h_x.unsqueeze(2) + h_y.unsqueeze(1) + time.unsqueeze(1).unsqueeze(2)
 
         for blk in self.blocks:
             hidden = blk(hidden)
-
-        hidden = self.post_norm(hidden.sum(dim=1))  # [batch, out_len, dim_hid]
+        if x.shape[1] > 1:
+            hidden = self.gelu(self.post_norm(hidden.sum(dim=2))) + h_x
+            hidden = self.gelu(self.len_proj2(hidden.permute(0, 2, 1))).permute(0, 2, 1)
+        else:
+            hidden = self.post_norm(hidden.sum(dim=1))  # [batch, out_len, dim_hid]
         return self.mlp(hidden)
 
 
@@ -193,11 +237,20 @@ class NDP:
         B = x0.shape[0]
 
         # 单步预测和序列预测统一处理
-        t = torch.randint(0, self.sched.T, (B,), device=device)
-        noise = torch.randn_like(y0)
-        y_t = self.sched.q_sample(y0, t, noise)
-        eps_pred = self.model(x0, y_t, t)
-        return nn.functional.mse_loss(eps_pred, noise)
+
+        if self.sched.T > 1:
+            noise = torch.randn_like(y0)
+            t = torch.randint(0, self.sched.T, (B,), device=device)
+            y_t = self.sched.q_sample(y0, t, noise)
+            eps_pred = self.model(x0, y_t, t)
+            loss = nn.functional.mse_loss(eps_pred, noise)
+        else:
+            noise = torch.ones_like(y0)
+            t = torch.ones((B,), device=device)
+            eps_pred = self.model(x0, noise, t)
+            # print(eps_pred[0])
+            loss = nn.functional.mse_loss(eps_pred, y0)
+        return loss
 
     @torch.no_grad()
     def sample(self, x0: torch.Tensor, seq_len: int, out_dim: int = 1) -> torch.Tensor:
@@ -215,16 +268,22 @@ class NDP:
         B = x0.shape[0]
 
         # 初始化带噪声的输出序列
-        y_t = torch.randn(B, seq_len, out_dim, device=device)
 
         # 逐步去噪过程
-        for step in reversed(range(self.sched.T)):
-            t = torch.full((B,), step, device=device, dtype=torch.long)
-            eps = self.model(x0, y_t, t)
-            y_prev = self.sched.predict_prev(y_t, eps, t)
-            if step > 0:
-                noise = torch.randn_like(y_t, device=device)
-                beta = self.sched.betas[step].sqrt().to(device)
-                y_prev += beta * noise
-            y_t = y_prev
+        if self.sched.T > 1:
+            y_t = torch.randn(B, seq_len, out_dim, device=device)
+            for step in reversed(range(self.sched.T)):
+                t = torch.full((B,), step, device=device, dtype=torch.long)
+                eps = self.model(x0, y_t, t)
+                y_prev = self.sched.predict_prev(y_t, eps, t)
+                if step > 0:
+                    noise = torch.randn_like(y_t, device=device)
+                    beta = self.sched.betas[step].sqrt().to(device)
+                    y_prev += beta * noise
+                y_t = y_prev
+        else:
+            noise = torch.ones(B, seq_len, out_dim, device=device)
+            t = torch.ones((B,), device=device)
+            y_t = self.model(x0, noise, t)
+            # print(y_t[0])
         return y_t
