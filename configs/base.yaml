@@ -9,5 +9,6 @@ layers: 6
 lr: 0.0003
 lr_min: 0.000001
 epochs: 300
-ckpt: checkpoints/
+ckpt: results/checkpoints/ndp_best.pt
+save: results/radiomap/train_2304601_ndp.png
 seed: 2025

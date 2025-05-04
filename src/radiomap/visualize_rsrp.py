@@ -8,7 +8,7 @@ from tqdm import tqdm
 from src.ndp import NDP
 
 
-def load_model(cfg: dict, ckpt_path: str, device: str = "cpu"):
+def load_model(cfg: dict, device: str = "cpu"):
     model_wrap = NDP(
         in_dim=cfg["D"],
         time_step=cfg["T"],
@@ -16,7 +16,7 @@ def load_model(cfg: dict, ckpt_path: str, device: str = "cpu"):
         hidden=cfg["hidden"],
         n_layers=cfg["layers"],
     )
-    state_dict = torch.load(ckpt_path, map_location=device)
+    state_dict = torch.load(cfg["ckpt"], map_location=device)
     model_wrap.model.load_state_dict(state_dict)
     model_wrap.model.eval()
     return model_wrap
@@ -31,16 +31,13 @@ def interpolate_grid(resolution=100):
 
 
 def visualize_rsrp_map(
-    csv_path: str,
     cfg: dict = None,
-    ckpt_path: str = None,
     title: str = None,
-    save_path: str = None,
     resolution: int = 100,
     full_coverage: bool = False,
-    batch_size: int = 64,
 ):
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(cfg["csv"])
+    batch_size = cfg.get("batch", 256)
     required_cols = {"X", "Y", "RSRP"}
     if not required_cols.issubset(df.columns):
         missing = required_cols - set(df.columns)
@@ -50,7 +47,7 @@ def visualize_rsrp_map(
     pivot_true = df.pivot_table(index="Y", columns="X", values="RSRP")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_model(cfg, ckpt_path, device)
+    model = load_model(cfg, device)
     x_cols = [c for c in df.columns if c.upper() != "RSRP"]
 
     if full_coverage:  # 如果需要全覆盖，则创建高分辨率网格
@@ -97,8 +94,9 @@ def visualize_rsrp_map(
     )
     axes[1].set_title(f"Model Prediction")
     axes[1].axis("off")
-    plt.suptitle(title or Path(csv_path).stem)
+    plt.suptitle(title or Path(cfg["csv"]).stem)
     plt.tight_layout()
+    save_path = cfg["save"]
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(save_path)
     print(f"✅ 图像已保存至: {save_path}")
@@ -111,42 +109,15 @@ def visualize_rsrp_map(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--csv",
-        default="datasets/processed/train_2304601.csv",
-        help="输入CSV路径, 需包含X/Y/RSRP列",
-    )
-    parser.add_argument(
-        "--cfg", default="configs/base.yaml", help="模型配置文件 (yaml)"
-    )
-    parser.add_argument(
-        "--ckpt", default="results/checkpoints/ndp_best.pt", help="模型权重文件路径"
-    )
+    parser.add_argument("--cfg", default="configs/base.yaml", help="模型配置文件")
     parser.add_argument("--title", default="RSRP Heatmap", help="热力图标题")
-    parser.add_argument("--save", default="results/runs", help="保存图像文件路径")
     parser.add_argument("--resolution", type=int, default=256, help="网格分辨率")
-    parser.add_argument(
-        "--full", action="store_true", default=True, help="是否预测全覆盖网格"
-    )
-    parser.add_argument("--batch_size", type=int, default=64, help="批处理大小")
+    parser.add_argument("--full", action="store_true", default=True, help="是否全覆盖")
     args = parser.parse_args()
 
-    # 如果指定了保存路径但没有扩展名，添加时间戳和扩展名
-    if args.save and not args.save.endswith((".png", ".jpg", ".pdf")):
-        import time
-
-        timestamp = time.strftime("%H%M%S")
-        save_path = f"{args.save}-{timestamp}.png"
-    else:
-        save_path = args.save
-
     visualize_rsrp_map(
-        args.csv,
         yaml.safe_load(open(args.cfg)),
-        args.ckpt,
         args.title,
-        save_path,
         args.resolution,
         args.full,
-        args.batch_size,
     )

@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt, seaborn as sns
 
 from src.data import RSMap
 from .metrics import rmse, pcrr
+from .visualize_rsrp import interpolate_grid
 
 
 class BaselineModel:
@@ -45,18 +46,19 @@ class BaselineModel:
         return {"rmse": rmse_val, "pcrr": pcrr_val}
 
     def visualize_prediction(
-        self, csv_path, title=None, save_path=None, show_residual=True
+        self, csv_path, title=None, save_path=None, resolution=256
     ):
         """可视化模型在栅格地图上的预测结果"""
         df = pd.read_csv(csv_path)
 
         # 提取特征和真实值
+        grid_df = interpolate_grid(resolution=resolution)
         x_cols = [c for c in df.columns if c.upper() != "RSRP"]
-        X = df[x_cols].values
-        df["RSRP_PRED"] = self.predict(X).flatten()
+        X = grid_df[x_cols].values
+        grid_df["RSRP_PRED"] = self.predict(X).flatten()
 
         pivot_true = df.pivot_table(index="Y", columns="X", values="RSRP")
-        pivot_pred = df.pivot_table(index="Y", columns="X", values="RSRP_PRED")
+        pivot_pred = grid_df.pivot_table(index="Y", columns="X", values="RSRP_PRED")
 
         fig, axes = plt.subplots(1, 2, figsize=(18, 5))
 
@@ -187,7 +189,6 @@ def train_and_evaluate(cfg):
                 vis_csv,
                 title=vis_title,
                 save_path=vis_save,
-                show_residual=cfg.get("show_residual", True),
             )
 
     # 绘制与NDP模型的对比图
