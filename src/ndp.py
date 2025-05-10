@@ -225,7 +225,7 @@ class NDP:
     def train_epoch(self, train_loader, epoch, optimizer, device, scheduler=None):
         self.model.train()
         total_loss = 0
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch}", leave=False)
         for x, y in pbar:
             loss = self.loss(x.to(device), y.to(device))
             optimizer.zero_grad()

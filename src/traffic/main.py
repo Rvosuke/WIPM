@@ -43,8 +43,7 @@ def visualize_sample(preds, targets, save_path, sample_idx=0):
     target_sample = targets[sample_idx].flatten()
     x_points = np.arange(len(pred_sample))  # 创建X轴坐标
 
-    plt.style.use("ggplot")
-    plt.grid(True, linestyle="-", alpha=0.7)
+    # plt.grid(True, linestyle="-", alpha=0.7)
     plt.figure(figsize=(12, 7))
 
     plt.plot(x_points, target_sample, "b-", label="Ground Truth")
