@@ -4,8 +4,8 @@ transfer: true
 save_dir: results/5g_traffic_baselines/
 batch: 256
 train_rate: 0.8  # 0.8 -> many_shot; 0.2 -> few_shot
-input_len: 36  # input_len
-output_len: 36  # 36 -> long_term; 18 -> short_term
+input_len: 128  # input_len
+output_len: 128  # 36 -> long_term; 18 -> short_term
 T: 1
 D: 3
 hidden: 64

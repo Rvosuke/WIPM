@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt, seaborn as sns
 import torch, yaml, argparse
 from pathlib import Path
 from tqdm import tqdm
+from scipy.ndimage import gaussian_filter, median_filter
+import cv2
 
 from src.ndp import NDP
 
@@ -28,6 +30,46 @@ def interpolate_grid(resolution=100):
     y_grid = np.linspace(0, 1, resolution)
     xx, yy = np.meshgrid(x_grid, y_grid)
     return pd.DataFrame({"X": xx.flatten(), "Y": yy.flatten()})
+
+
+def apply_smoothing(data, sigma=0.5, kernel_size=3):
+    """对预测地图应用平滑处理
+
+    Args:
+        data: 需要平滑的数据矩阵
+        method: 平滑方法，可选 'gaussian', 'median', 'bilateral'
+        sigma: 高斯滤波的sigma参数
+        kernel_size: 中值滤波的核大小
+
+    Returns:
+        平滑处理后的数据矩阵
+    """
+
+    data = np.nan_to_num(data, nan=np.nanmean(data))
+
+    # 步骤1: 中值滤波去除离群噪声点
+    data = median_filter(data, size=5)
+
+    # 步骤2: 高斯滤波进行初步平滑 (使用较大sigma值)
+    data = gaussian_filter(data, sigma=3.0)
+
+    # 步骤3: 归一化到0-255用于双边滤波
+    data_norm = (
+        (data - np.nanmin(data)) / (np.nanmax(data) - np.nanmin(data)) * 255
+    ).astype(np.uint8)
+
+    # 步骤4: 应用多次双边滤波达到更强的平滑效果
+    filtered = cv2.bilateralFilter(data_norm, d=9, sigmaColor=100, sigmaSpace=100)
+    # 再应用一次双边滤波以增强平滑效果
+    filtered = cv2.bilateralFilter(filtered, d=9, sigmaColor=75, sigmaSpace=75)
+
+    # 步骤5: 转换回原始数据范围
+    data = filtered / 255 * (np.nanmax(data) - np.nanmin(data)) + np.nanmin(data)
+
+    # 步骤6: 最终使用一次高斯滤波使结果更加平滑
+    data = gaussian_filter(data, sigma=2.0)
+
+    return data
 
 
 def visualize_rsrp_map(
@@ -72,11 +114,15 @@ def visualize_rsrp_map(
                 predictions.append(batch_pred)
         df["RSRP_PRED"] = np.concatenate(predictions)
         pivot_pred = df.pivot_table(index="Y", columns="X", values="RSRP_PRED")
-
+    pivot_pred_values = pivot_pred.values
+    smoothed_values = apply_smoothing(pivot_pred_values)
+    pivot_pred = pd.DataFrame(
+        smoothed_values, index=pivot_pred.index, columns=pivot_pred.columns
+    )
     fig, axes = plt.subplots(1, 2, figsize=(18, 5))
     sns.heatmap(  # 绘制真实值热图（仅包含原始数据点）
         pivot_true.sort_index(ascending=False),
-        cmap="YlGnBu",
+        cmap="viridis",
         vmin=0.0,
         vmax=1.0,
         ax=axes[0],
@@ -86,7 +132,7 @@ def visualize_rsrp_map(
     axes[0].axis("off")
     sns.heatmap(  # 绘制预测热图（可能是完整网格）
         pivot_pred.sort_index(ascending=False),
-        cmap="YlGnBu",
+        cmap="viridis",
         vmin=0.0,
         vmax=1.0,
         ax=axes[1],
@@ -111,7 +157,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", default="configs/base.yaml", help="模型配置文件")
     parser.add_argument("--title", default="RSRP Heatmap", help="热力图标题")
-    parser.add_argument("--resolution", type=int, default=256, help="网格分辨率")
+    parser.add_argument("--resolution", type=int, default=360, help="网格分辨率")
     parser.add_argument("--full", action="store_true", default=True, help="是否全覆盖")
     args = parser.parse_args()
 

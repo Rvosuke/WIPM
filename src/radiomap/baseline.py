@@ -64,7 +64,7 @@ class BaselineModel:
 
         sns.heatmap(  # 绘制真实值热力图
             pivot_true.sort_index(ascending=False),
-            cmap="YlGnBu",
+            cmap="viridis",
             vmin=0.0,
             vmax=1.0,
             ax=axes[0],
@@ -75,7 +75,7 @@ class BaselineModel:
 
         sns.heatmap(  # 绘制预测值热力图
             pivot_pred.sort_index(ascending=False),
-            cmap="YlGnBu",
+            cmap="viridis",
             vmin=0.0,
             vmax=1.0,
             ax=axes[1],

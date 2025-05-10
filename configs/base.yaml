@@ -1,5 +1,5 @@
 csv: datasets/radiomap/train_2304601.csv
-batch: 256
+batch: 1024
 train_rate: 0.5
 N: 1
 D: 2
