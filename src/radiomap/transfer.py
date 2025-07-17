@@ -85,14 +85,10 @@ def train_transfer(cfg):
             f.write(f"{k}: {v}\n")
     print(f"✓ 训练完成，结果已保存到 {save_dir}")
     visualize_rsrp_map(
-        cfg["test_csv_path"],
         cfg,
-        ckpt_dir / "ndp_best.pt",
         title="Transfer Test RSRP Map",
-        save_path=save_dir / "transfer_test_map.png",
         resolution=256,
         full_coverage=True,
-        batch_size=cfg["batch"] * 4,
     )
 
 
